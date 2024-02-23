@@ -16,7 +16,7 @@ RULES_THRESHOLD = 30
 
 class LogicDataset(Dataset):
     def __init__(self, examples):
-        #self.examples = examples
+        # self.examples = examples
         # skip examples that have too many rules
         self.examples = [ex for ex in examples if len(ex["rules"]) <= RULES_THRESHOLD]
         random.shuffle(self.examples)
@@ -135,7 +135,7 @@ def tokenize_and_embed(sentence, word_emb, position_emb):
 
 # based on PGC repo: pgc/train.py
 def test_model(model, test, batch_size,
-                log_file, dataset_name, word_emb, position_emb):
+                log_file, word_emb, position_emb):
     
     test_loader = DataLoader(dataset=test, batch_size=batch_size, shuffle=True)
 
@@ -147,7 +147,7 @@ def test_model(model, test, batch_size,
     print('test acc: {}'.format(test_acc))
 
     with open(log_file, 'a+') as f:
-        f.write('{}\n'.format(test_acc))
+        f.write('{} \n'.format(test_acc))
 
 
 def evaluate(model, dataset_loader, word_emb, position_emb):
@@ -190,14 +190,15 @@ def main():
 
     #model = LogicBERT()
     #model.load_state_dict(torch.load('/space/oliver/paradox-learning2reason/OUTPUT/LP/LOGIC_BERT/model.pt'))
+    # model = torch.load('/space/oliver/paradox-learning2reason/OUTPUT/LP/LOGIC_BERT/model.pt')
     model = torch.load('/space/trzhao/paradox-learning2reason/OUTPUT/LP/LOGIC_BERT/model.pt')
     model.to(device)
 
     #train, valid, test = load_data(args.dataset_path, args.dataset)
 
     test_model(model, test=test,
-        batch_size=args.batch_size, log_file=args.log_file,
-        dataset_name=args.dataset, word_emb=word_emb, position_emb=position_emb)
+        batch_size=args.batch_size,
+        log_file=args.log_file, word_emb=word_emb, position_emb=position_emb)
 
     """ old code (evaluate.py) that checks the model's correctness
     correct_counter = 0
