@@ -161,7 +161,9 @@ def train_model(model, train, valid, test,
         print('Epoch: {}'.format(epoch))
 
         # step in train
-        for x_batch, labels, something_else_lol in train_loader:
+        # batch accumulation parameter
+        accum_iter = 128
+        for batch_idx, (x_batch, labels, something_else_lol) in enumerate(train_loader):
             
             # sanity check
             #assert batch_size == len(x_batch)
@@ -171,15 +173,16 @@ def train_model(model, train, valid, test,
 
             # forward passes
             y_batch = []
-            optimizer.zero_grad()
+            # optimizer.zero_grad()
+
             for sentence in x_batch:
                 input_state = tokenize_and_embed(sentence, word_emb, position_emb)
                 m_out = model(input_state)
                 y = m_out[0, 255]
                 # print(y.item()) # print logit value
                 y_batch.append(y)
+           
             y_batch = torch.stack(y_batch, dim=0)
-            
             y_batch = y_batch.type(torch.FloatTensor)
             labels = labels.type(torch.FloatTensor)
 
@@ -189,17 +192,21 @@ def train_model(model, train, valid, test,
             # print(y_batch)
             # print(labels)
 
-            bce = torch.nn.BCEWithLogitsLoss() #get the BCE loss function
-            loss = bce(y_batch, labels) #compute loss
-
+            bce = torch.nn.BCEWithLogitsLoss()              # get the BCE loss function
+            mini_batch_loss = bce(y_batch, labels)          # compute loss
+            loss = mini_batch_loss / accum_iter             # normalize loss to account for batch accumulation
+    
             # ####
             # # temporarily make the params retain their gradients so we can view em
             # for name, param in model.named_parameters():
             #     param.retain_grad()
             # ####
 
-            loss.backward()#back propogate (compute gradients)
-            optimizer.step()#update parameters according to this batch's gradients
+            loss.backward()     #back propogate (compute gradients)
+
+            if ((batch_idx + 1) % accum_iter == 0) or (batch_idx + 1 == len(train_loader)):
+                optimizer.step()    #update parameters according to this batch's gradients
+                optimizer.zero_grad()
 
             # # debugging prints:
             # print_nonzero_params = False

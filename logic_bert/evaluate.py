@@ -161,6 +161,7 @@ def main():
         f.write('{} \n'.format(test_acc))
     
     print(f'AC: {correct_counter} tests passed')
+    print(f'Test Accuracy: {test_acc}%')
 
 
 if __name__ == '__main__':
