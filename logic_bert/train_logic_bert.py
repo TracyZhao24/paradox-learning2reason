@@ -16,7 +16,7 @@ RULES_THRESHOLD = 30
 
 class LogicDataset(Dataset):
     def __init__(self, examples):
-        #self.examples = examples
+        # self.examples = examples
 
         # skip examples that have too many rules
         self.examples = [ex for ex in examples if len(ex["rules"]) <= RULES_THRESHOLD]
@@ -168,9 +168,6 @@ def train_model(model, train, valid, test,
             # sanity check
             #assert batch_size == len(x_batch)
 
-            # gpu 
-            #x_batch = x_batch.to(device)
-
             # forward passes
             y_batch = []
             # optimizer.zero_grad()
@@ -187,7 +184,6 @@ def train_model(model, train, valid, test,
             labels = labels.type(torch.FloatTensor)
 
             torch.log(y_batch)
-            # torch.log(y_batch)
 
             # print(y_batch)
             # print(labels)
@@ -248,7 +244,9 @@ def evaluate(model, dataset_loader, word_emb, position_emb):
     accs = []
     dataset_len = 0
     counter = 0
+    # print("in evaluate")
     for x_batch, labels, something_else_lol in dataset_loader:
+        # print("in outer for loop")
         batch_correct = 0
         batch_total = 0
         for sentence,label in zip(x_batch,labels):
@@ -259,7 +257,9 @@ def evaluate(model, dataset_loader, word_emb, position_emb):
             accs.append(correct_prediction)
             batch_correct += correct_prediction
             batch_total += 1
-    acc = sum(accs) / len(accs)
+        # print("accuracies:", accs)
+    print("sum:", sum(accs))
+    acc = sum(accs).item() / len(accs)
     return acc
 
 
