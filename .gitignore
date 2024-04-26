@@ -1,1 +1,3 @@
-/DATA/*
+/DATA/
+/OUTPUT/
+**/__pycache__/

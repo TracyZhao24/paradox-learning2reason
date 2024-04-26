@@ -1,0 +1,25 @@
+name: logicbert_training
+channels:
+  - pytorch
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pytorch=1.6.0
+  - torchvision=0.7.0
+  - cudatoolkit=10.1
+  - cudnn=7.6.5
+  - yacs
+  - easydict
+  - pillow
+  - commentjson
+  - attrdict
+  - boto3
+  - requests
+  - scikit-learn
+  - ftfy
+  - regex
+  - tqdm
+  - ml-collections
+  - transformers=4.18.0
+

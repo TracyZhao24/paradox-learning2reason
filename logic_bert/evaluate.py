@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 from model import LogicBERT
 
-device = 'cpu'
-RULES_THRESHOLD = 5
+# device = 'cpu'
+RULES_THRESHOLD = 60
 
 class LogicDataset(Dataset):
     def __init__(self, examples):
@@ -125,15 +125,15 @@ def tokenize_and_embed(sentence, word_emb, position_emb):
 def main():
     args = init()
 
-    val_dataset = LogicDataset.initialze_from_file(args.data_file)
+    val_dataset = LogicDataset.initialze_from_file(args.data_file+'_test')
     print(len(val_dataset))
     
     vocab = read_vocab(args.vocab_file)
     word_emb = gen_word_embedding(vocab)
     position_emb = gen_position_embedding(1024)
 
-    #model = LogicBERT()
-    model = torch.load('/space/trzhao/paradox-learning2reason/OUTPUT/LP/LOGIC_BERT/model.pt')
+    model = LogicBERT()
+    # model = torch.load('/space/trzhao/paradox-learning2reason/OUTPUT/LP/LOGIC_BERT/model.pt')
     model.to(device)
 
     correct_counter = 0
@@ -158,7 +158,7 @@ def main():
     test_acc = correct_counter / len(val_dataset)
 
     with open(args.log_file, 'a+') as f:
-        f.write('{} \n'.format(test_acc))
+        f.write('{} rule threshold: {} \n'.format(RULES_THRESHOLD, test_acc))
     
     print(f'AC: {correct_counter} tests passed')
     print(f'Test Accuracy: {test_acc}%')

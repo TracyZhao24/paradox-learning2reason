@@ -57,7 +57,7 @@ class LogicDataset(Dataset):
             with open(file_name) as f:
                 examples = json.load(f)
                 for example in examples:
-                    if example['depth'] < 6:
+                    if example['depth'] <= 3:
                         all_examples.extend([example])
             # with open(file_name) as f:
             #     examples = json.load(f)
@@ -84,8 +84,12 @@ def init():
     parser.add_argument('--lr', default=0.001, type=float)
     parser.add_argument('--weight_decay', default=1.0, type=float)
     parser.add_argument('--max_cluster_size', default=10, type=int)
-    parser.add_argument('--log_file', default='log.txt', type=str)
+    parser.add_argument('--loss_log_file', default='loss_log.txt', type=str)
+    parser.add_argument('--acc_log_file', default='acc_log.txt', type=str)
     parser.add_argument('--output_model_file', default='model.pt', type=str)
+
+    parser.add_argument('--word_emb_file', type=str)
+    parser.add_argument('--position_emb_file', type=str)
     
     args = parser.parse_args()
 
@@ -105,7 +109,7 @@ def read_vocab(vocab_file):
     return vocab
 
 
-def gen_word_embedding(vocab):
+def gen_word_embedding(vocab, word_emb_file):
     word_emb = {}
     for word in vocab:
         word_emb[word] = torch.cat((torch.randn(59).to(device), torch.zeros(5).to(device)))
@@ -113,10 +117,12 @@ def gen_word_embedding(vocab):
     word_emb['.'] = torch.cat((torch.zeros(59).to(device), torch.ones(1).to(device), torch.zeros(4).to(device)))
     word_emb['[CLS]'] = word_emb['.']
 
+    torch.save(word_emb, word_emb_file)
+
     return word_emb
 
 
-def gen_position_embedding(n):
+def gen_position_embedding(n, position_emb_file):
     P = torch.randn(n, 64).to(device)
     for i in range(0, n):
         P[i] /= torch.norm(P[i])
@@ -128,6 +134,8 @@ def gen_position_embedding(n):
 
     for j, k in enumerate([6, 4, 4, 6, 0, 4, 7, 7]):
         position_emb[0, 64*j:64*(j+1)] = P[k]
+    
+    torch.save(position_emb, position_emb_file)
 
     return position_emb
 
@@ -143,7 +151,7 @@ def tokenize_and_embed(sentence, word_emb, position_emb):
 # based on PGC repo: pgc/train.py
 def train_model(model, train, valid, test,
                 lr, weight_decay, batch_size, max_epoch,
-                log_file, output_model_file, dataset_name, word_emb, position_emb):
+                loss_log_file, acc_log_file, output_model_file, dataset_name, word_emb, position_emb):
     valid_loader, test_loader = None, None
     train_loader = DataLoader(dataset=train, batch_size=batch_size, shuffle=True)
     if valid is not None:
@@ -153,17 +161,29 @@ def train_model(model, train, valid, test,
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
+    # set up logging files
+    with open(loss_log_file, 'a+') as f:
+        f.write('Epoch | Accum Batch Loss | Batch Loss Depth 0 | Batch Loss Depth 1 | Batch Loss Depth 2 | Batch Loss Depth 3')
+    with open(acc_log_file, 'a+') as f:
+            f.write('Epoch | Train Acc | Validation Acc | Test Acc')
+
     # training loop
     #max_valid_ll = -1.0e7
     model = model.to(device)
     model.train()
-    for epoch in range(0, max_epoch):
+    for epoch in tqdm(range(0, max_epoch)):
         print('Epoch: {}'.format(epoch))
 
         # step in train
         # batch accumulation parameter
         accum_iter = 128
-        for batch_idx, (x_batch, labels, something_else_lol) in enumerate(train_loader):
+        # accumulate different loss per depth
+        batch_loss = 0
+        batch_loss_0 = []
+        batch_loss_1 = []
+        batch_loss_2 = []
+        batch_loss_3 = []
+        for batch_idx, (x_batch, labels, ex_depth) in enumerate(tqdm(train_loader)):
             
             # sanity check
             #assert batch_size == len(x_batch)
@@ -188,21 +208,44 @@ def train_model(model, train, valid, test,
             # print(y_batch)
             # print(labels)
 
-            bce = torch.nn.BCEWithLogitsLoss()              # get the BCE loss function
-            mini_batch_loss = bce(y_batch, labels)          # compute loss
-            loss = mini_batch_loss / accum_iter             # normalize loss to account for batch accumulation
-    
-            # ####
-            # # temporarily make the params retain their gradients so we can view em
-            # for name, param in model.named_parameters():
-            #     param.retain_grad()
-            # ####
+            bce = torch.nn.BCEWithLogitsLoss()   # get the BCE loss function
+            loss = bce(y_batch, labels)          # compute loss
+            # loss = mini_batch_loss             # normalize loss to account for batch accumulation
+            batch_loss += loss.item()  
+
+            # add loss depending on depth
+            if ex_depth == 0:
+                batch_loss_0.append(loss)
+            elif ex_depth == 1:
+                batch_loss_1.append(loss)
+            elif ex_depth == 2:
+                batch_loss_2.append(loss)
+            elif ex_depth == 3:
+                batch_loss_3.append(loss)
 
             loss.backward()     #back propogate (compute gradients)
 
-            if ((batch_idx + 1) % accum_iter == 0) or (batch_idx + 1 == len(train_loader)):
+            if ((batch_idx + 1) % accum_iter == 0): #or (batch_idx + 1 == len(train_loader)):
+                batch_loss /= accum_iter
+                batch_loss_0_val = sum(batch_loss_0) / len(batch_loss_0)
+                batch_loss_1_val = sum(batch_loss_1) / len(batch_loss_1)
+                batch_loss_2_val = sum(batch_loss_2) / len(batch_loss_2)
+                batch_loss_3_val = sum(batch_loss_3) / len(batch_loss_3)
+
+                print('Epoch {}, Accum Batch Loss: {}, Batch Loss Depth 0: {}, Batch Loss Depth 1: {}, Batch Loss Depth 2: {}, Batch Loss Depth 3: {}'
+                      .format(epoch, batch_loss, batch_loss_0_val, batch_loss_1_val, batch_loss_2_val, batch_loss_3_val))
+                with open(loss_log_file, 'a+') as f:
+                    f.write('{} {} {} {} {} {}\n'.format(epoch, batch_loss, batch_loss_0_val, batch_loss_1_val, batch_loss_2_val, batch_loss_3_val))
+
                 optimizer.step()    #update parameters according to this batch's gradients
                 optimizer.zero_grad()
+
+                # reset batch losses
+                batch_loss = 0
+                batch_loss_0.clear()
+                batch_loss_1.clear()
+                batch_loss_2.clear()
+                batch_loss_3.clear()
 
             # # debugging prints:
             # print_nonzero_params = False
@@ -223,7 +266,7 @@ def train_model(model, train, valid, test,
             #         if param.requires_grad and param.is_leaf:
             #             print(param.grad)
 
-            print('Epoch {}, Batch Loss: {}'.format(epoch, loss.item()))
+            # print('Epoch {}, Batch Loss: {}'.format(epoch, loss.item()))
 
         # compute accuracy on train, valid and test
         train_acc = evaluate(model, train_loader, word_emb, position_emb)
@@ -233,7 +276,7 @@ def train_model(model, train, valid, test,
 
         print('Epoch {}; train acc: {}; valid acc: {}; test acc: {}'.format(epoch, train_acc, valid_acc, test_acc))
 
-        with open(log_file, 'a+') as f:
+        with open(acc_log_file, 'a+') as f:
             f.write('{} {} {} {}\n'.format(epoch, train_acc, valid_acc, test_acc))
 
         if output_model_file != '':
@@ -244,9 +287,7 @@ def evaluate(model, dataset_loader, word_emb, position_emb):
     accs = []
     dataset_len = 0
     counter = 0
-    # print("in evaluate")
     for x_batch, labels, something_else_lol in dataset_loader:
-        # print("in outer for loop")
         batch_correct = 0
         batch_total = 0
         for sentence,label in zip(x_batch,labels):
@@ -274,8 +315,8 @@ def main():
     test = LogicDataset.initialze_from_file(args.data_file+'_test')
     
     vocab = read_vocab(args.vocab_file)
-    word_emb = gen_word_embedding(vocab)
-    position_emb = gen_position_embedding(1024)
+    word_emb = gen_word_embedding(vocab, args.word_emb_file)
+    position_emb = gen_position_embedding(1024, args.position_emb_file)
 
     model = LogicBERT()
     model.to(device)
@@ -285,7 +326,7 @@ def main():
     train_model(model, train=train, valid=valid, test=test,
         lr=args.lr, weight_decay=args.weight_decay,
         batch_size=args.batch_size, max_epoch=args.max_epoch,
-        log_file=args.log_file, output_model_file=args.output_model_file,
+        loss_log_file=args.loss_log_file, acc_log_file=args.acc_log_file, output_model_file=args.output_model_file,
         dataset_name=args.dataset, word_emb=word_emb, position_emb=position_emb)
 
     """ old code (evaluate.py) that checks the model's correctness

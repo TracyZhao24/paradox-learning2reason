@@ -13,12 +13,16 @@ from model import LogicBERT
 
 device = 'cpu'
 RULES_THRESHOLD = 30
+# DEPTH = 5
 
 class LogicDataset(Dataset):
-    def __init__(self, examples):
+    def __init__(self, examples, depth):
         # self.examples = examples
         # skip examples that have too many rules
-        self.examples = [ex for ex in examples if len(ex["rules"]) <= RULES_THRESHOLD]
+        # self.examples = [ex for ex in examples if len(ex["rules"]) <= RULES_THRESHOLD]
+        # filter by depth
+        self.examples = [ex for ex in examples if len(ex["rules"]) <= RULES_THRESHOLD and (ex["depth"]) == depth]
+        # print(len(self.examples))
         random.shuffle(self.examples)
 
     def __len__(self):
@@ -46,7 +50,7 @@ class LogicDataset(Dataset):
 
 
     @classmethod
-    def initialze_from_file(cls, file):
+    def initialze_from_file(cls, file, depth):
         if "," in file:
             files = file.split(",")
         else:
@@ -61,7 +65,7 @@ class LogicDataset(Dataset):
             # with open(file_name) as f:
             #     examples = json.load(f)
             #     all_examples.extend(examples)
-        return cls(all_examples)
+        return cls(all_examples, depth)
 
 
 def init():
@@ -70,7 +74,11 @@ def init():
     parser = argparse.ArgumentParser()
 
     # was already here
-    parser.add_argument('--data_file', type=str,)
+    parser.add_argument('--data_file', type=str)
+    parser.add_argument('--model_path', type=str)
+    parser.add_argument('--word_emb_path', type=str)
+    parser.add_argument('--position_emb_path', type=str)
+
     parser.add_argument('--vocab_file', type=str, default='vocab.txt')
     parser.add_argument('--device', default='cuda', type=str)
     parser.add_argument('--cuda_core', default='0', type=str)
@@ -79,6 +87,9 @@ def init():
     parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--max_cluster_size', default=10, type=int)
     parser.add_argument('--log_file', default='log.txt', type=str)
+
+    # tracy added
+    parser.add_argument('--depth', type=int)
     
     args = parser.parse_args()
 
@@ -135,19 +146,20 @@ def tokenize_and_embed(sentence, word_emb, position_emb):
 
 # based on PGC repo: pgc/train.py
 def test_model(model, test, batch_size,
-                log_file, word_emb, position_emb):
+                log_file, word_emb, position_emb, datafile, depth):
     
     test_loader = DataLoader(dataset=test, batch_size=batch_size, shuffle=True)
 
     # training loop
     model = model.to(device)
     # compute accuracy on train, valid and test
-    test_acc = evaluate(model, test_loader, word_emb, position_emb)
+    with torch.no_grad():
+        test_acc = evaluate(model, test_loader, word_emb, position_emb)
 
     print('test acc: {}'.format(test_acc))
 
     with open(log_file, 'a+') as f:
-        f.write('{} \n'.format(test_acc))
+        f.write('{} rules threshold, depth {} for {}: {} \n'.format(RULES_THRESHOLD, depth, datafile, test_acc))
 
 
 def evaluate(model, dataset_loader, word_emb, position_emb):
@@ -166,39 +178,35 @@ def evaluate(model, dataset_loader, word_emb, position_emb):
             input_state = tokenize_and_embed(sentence, word_emb, position_emb)
             m_out = model(input_state)
             y = m_out[0, 255]
-            # print(y.item()) # print logit value
-            #y_batch.append(y)
             correct_prediction = ((y>.5) == label)
             accs.append(correct_prediction)
             batch_correct += correct_prediction
             batch_total += 1
         #print('evaluation batch accuracy: {}'.format(batch_correct/batch_total))
-    acc = sum(accs) / len(accs)
+    acc = sum(accs).item() / len(accs)
     return acc
 
 def main():
     args = init()
 
-    #dataset = LogicDataset.initialze_from_file(args.data_file)
-    #train, valid, test = dataset.split_dataset()
+    # evaluate by example depth
+    test = LogicDataset.initialze_from_file(args.data_file+'_test', args.depth)
 
-    test = LogicDataset.initialze_from_file(args.data_file+'_test')
-    
-    vocab = read_vocab(args.vocab_file)
-    word_emb = gen_word_embedding(vocab)
-    position_emb = gen_position_embedding(1024)
+    # load embeddings from training
+    word_emb = torch.load(args.word_emb_path)
+    position_emb = torch.load(args.position_emb_path)
 
-    #model = LogicBERT()
-    #model.load_state_dict(torch.load('/space/oliver/paradox-learning2reason/OUTPUT/LP/LOGIC_BERT/model.pt'))
-    # model = torch.load('/space/oliver/paradox-learning2reason/OUTPUT/LP/LOGIC_BERT/model.pt')
-    model = torch.load('/space/trzhao/paradox-learning2reason/OUTPUT/LP/LOGIC_BERT/model.pt')
+    # evaluate LogicBERT on all depths
+    # model = LogicBERT()
+    model = torch.load(args.model_path)
     model.to(device)
 
-    #train, valid, test = load_data(args.dataset_path, args.dataset)
-
+    print(f'now testing depth {args.depth}')
+    
     test_model(model, test=test,
         batch_size=args.batch_size,
-        log_file=args.log_file, word_emb=word_emb, position_emb=position_emb)
+        log_file=args.log_file, word_emb=word_emb,
+        position_emb=position_emb, datafile = args.data_file+'_test', depth = args.depth)
 
     """ old code (evaluate.py) that checks the model's correctness
     correct_counter = 0

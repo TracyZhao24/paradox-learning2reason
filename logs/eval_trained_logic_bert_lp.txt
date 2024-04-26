@@ -1,0 +1,47 @@
+# LP-trained model
+30 rules threshold for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 0.9768211920529801 
+30 rules threshold for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 0.8929378786508726 
+
+# LP-trained model tested on LP data
+30 rules threshold, depth 0 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0                 (2742 ex)
+30 rules threshold, depth 1 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0                 (2264 ex)
+30 rules threshold, depth 2 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 0.9982593559617058  (2298 ex)
+30 rules threshold, depth 3 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 0.9942882249560633  (2276 ex)
+30 rules threshold, depth 4 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 0.9762675296655879  (1854 ex)
+30 rules threshold, depth 5 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 0.8136              (1250 ex)
+
+# LP-trained model tested on RP data
+30 rules threshold, depth 0 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0                 (2366 ex)
+30 rules threshold, depth 1 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 0.9802981895633652  (1878 ex)
+30 rules threshold, depth 2 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 0.802455953016551   (1873 ex)
+30 rules threshold, depth 3 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 0.7817896389324961  (1911 ex)
+30 rules threshold, depth 4 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 0.8578856152512998  (1731 ex)
+30 rules threshold, depth 5 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 0.9123076923076923  (1300 ex)
+
+# LogicBERT tested on LP test dataset
+30 rules threshold, depth 0 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 1 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 2 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 3 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 4 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 5 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+
+# LogicBERT tested on RP test dataset
+30 rules threshold, depth 0 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 1 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 2 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 3 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 4 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 5 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+
+# LP-trained model (3) with 4 reasoning layers tested on LP data
+30 rules threshold, depth 0 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 1 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 2 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 0.999129677980853 
+30 rules threshold, depth 3 for DATA/LP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+
+# LP-trained model (3) with 4 reasoning layers tested on RP data
+30 rules threshold, depth 0 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 1 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 2 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 1.0 
+30 rules threshold, depth 3 for DATA/RP/prop_examples.balanced_by_backward.max_6.json_test: 0.9942438513867086 

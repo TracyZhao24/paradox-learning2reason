@@ -1,0 +1,23 @@
+# LP train data
+30 rules, depth 0: 21298 examples
+30 rules, depth 1: 18105
+30 rules, depth 2: 18101
+30 rules, depth 3: 18445
+30 rules, depth 4: 15229
+30 rules, depth 5: 10059
+
+# LP test data
+30 rules, depth 0: 2742 
+30 rules, depth 1: 2264
+30 rules, depth 2: 2298
+30 rules, depth 3: 2276
+30 rules, depth 4: 1854
+30 rules, depth 5: 1250
+
+# RP test data
+30 rules, depth 0: 2366
+30 rules, depth 1: 1878 
+30 rules, depth 2: 1873
+30 rules, depth 3: 1911
+30 rules, depth 4: 1731
+30 rules, depth 5: 1300
