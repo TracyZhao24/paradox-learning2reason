@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 import os
+import os.path
 import json
 import random
 import argparse
@@ -13,6 +14,19 @@ from model import LogicBERT
 
 device = 'cpu'
 RULES_THRESHOLD = 30
+
+POSITION_EMB_FILE = 'position_emb.pt'
+WORD_EMB_FILE = 'word_emb.pt'
+MODEL_OUTPUT_FILE = 'model'
+TRAIN_LOSS_LOG_FILE = 'train_loss_log.txt'
+TEST_LOSS_LOG_FILE = 'test_loss_log.txt'
+OTHER_DIST_LOSS_LOG_FILE = 'other_dist_loss_log.txt'
+TRAIN_ACC_LOG_FILE = 'train_acc_log.txt'
+TEST_ACC_LOG_FILE = 'test_acc_log.txt'
+OTHER_DIST_ACC_LOG_FILE = 'other_dist_acc_log.txt'
+PER_EPOCH_TRAIN_ACC_LOG_FILE = 'per_epoch_train_acc_log.txt'
+PER_EPOCH_TEST_ACC_LOG_FILE = 'per_epoch_test_acc_log.txt'
+PER_EPOCH_OTHER_DIST_ACC_LOG_FILE = 'per_epoch_other_dist_acc_log.txt'
 
 class LogicDataset(Dataset):
     def __init__(self, examples):
@@ -47,7 +61,7 @@ class LogicDataset(Dataset):
 
 
     @classmethod
-    def initialze_from_file(cls, file):
+    def initialze_from_file(cls, file, max_reasoning_depth):
         if "," in file:
             files = file.split(",")
         else:
@@ -57,7 +71,7 @@ class LogicDataset(Dataset):
             with open(file_name) as f:
                 examples = json.load(f)
                 for example in examples:
-                    if example['depth'] <= 3:
+                    if example['depth'] <= max_reasoning_depth: # 3 -> 5 -> 4 (54oli) -> 5 (may13)
                         all_examples.extend([example])
             # with open(file_name) as f:
             #     examples = json.load(f)
@@ -70,26 +84,34 @@ def init():
 
     parser = argparse.ArgumentParser()
 
-    # was already here
-    parser.add_argument('--data_file', type=str,)
+    
     parser.add_argument('--vocab_file', type=str, default='vocab.txt')
     parser.add_argument('--device', default='cuda', type=str)
     parser.add_argument('--cuda_core', default='0', type=str)
     
-    # oliver added
-    parser.add_argument('--dataset_path', default='', type=str)
-    parser.add_argument('--dataset', default='', type=str) 
+    # parser.add_argument('--dataset_path', default='', type=str)
+    parser.add_argument('--data_file', type=str)
+    parser.add_argument('--other_dist_data_file', default='', type=str) 
+    # parser.add_argument('--dataset', default='', type=str) 
     parser.add_argument('--max_epoch', default=20, type=int)
-    parser.add_argument('--batch_size', default=8, type=int)
+    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--effective_batch_size', default=256, type=int)
     parser.add_argument('--lr', default=0.001, type=float)
     parser.add_argument('--weight_decay', default=1.0, type=float)
-    parser.add_argument('--max_cluster_size', default=10, type=int)
-    parser.add_argument('--loss_log_file', default='loss_log.txt', type=str)
-    parser.add_argument('--acc_log_file', default='acc_log.txt', type=str)
-    parser.add_argument('--output_model_file', default='model.pt', type=str)
+    # parser.add_argument('--max_cluster_size', default=10, type=int)
+    # parser.add_argument('--train_loss_log_file', default='train_loss_log.txt', type=str)
+    # parser.add_argument('--test_loss_log_file', default='test_loss_log.txt', type=str)
+    # parser.add_argument('--other_dist_loss_log_file', default='other_dist_loss_log.txt', type=str)
+    # parser.add_argument('--train_acc_log_file', default='train_acc_log.txt', type=str)
+    # parser.add_argument('--test_acc_log_file', default='test_acc_log.txt', type=str)
+    # parser.add_argument('--other_dist_acc_log_file', default='other_dist_acc_log.txt', type=str)
+    # parser.add_argument('--output_model_file', default='model.pt', type=str)
+    parser.add_argument('--max_reasoning_depth', default=6, type=int)
+    parser.add_argument('--model_layers', default=8, type=int)
+    parser.add_argument('--experiment_directory', default='./', type=str)
 
-    parser.add_argument('--word_emb_file', type=str)
-    parser.add_argument('--position_emb_file', type=str)
+    # parser.add_argument('--word_emb_file', type=str)
+    # parser.add_argument('--position_emb_file', type=str)
     
     args = parser.parse_args()
 
@@ -148,209 +170,411 @@ def tokenize_and_embed(sentence, word_emb, position_emb):
     return x
     
 
-# based on PGC repo: pgc/train.py
-def train_model(model, train, valid, test,
-                lr, weight_decay, batch_size, max_epoch,
-                loss_log_file, acc_log_file, output_model_file, dataset_name, word_emb, position_emb):
+def train_model(model, train, valid, test, other_dist,
+                lr, weight_decay, batch_size, effective_batch_size, max_epoch,
+                train_loss_log_file, test_loss_log_file, other_dist_loss_log_file, 
+                train_acc_log_file, test_acc_log_file, other_dist_acc_log_file,
+                per_epoch_train_acc_log_file, per_epoch_test_acc_log_file, per_epoch_other_dist_acc_log_file,
+                output_model_file, word_emb, position_emb, max_reasoning_depth=6):
     valid_loader, test_loader = None, None
     train_loader = DataLoader(dataset=train, batch_size=batch_size, shuffle=True)
     if valid is not None:
         valid_loader = DataLoader(dataset=valid, batch_size=batch_size, shuffle=True)
     if test is not None:
         test_loader = DataLoader(dataset=test, batch_size=batch_size, shuffle=True)
+    if other_dist is not None:
+        other_dist_loader = DataLoader(dataset=other_dist, batch_size=batch_size, shuffle=True)
 
+    # select optimizer and loss function
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    bce_loss = torch.nn.BCELoss()                    # use Binary Cross Entropy Loss 
 
     # set up logging files
-    with open(loss_log_file, 'a+') as f:
-        f.write('Epoch | Accum Batch Loss | Batch Loss Depth 0 | Batch Loss Depth 1 | Batch Loss Depth 2 | Batch Loss Depth 3')
-    with open(acc_log_file, 'a+') as f:
-            f.write('Epoch | Train Acc | Validation Acc | Test Acc')
+    # (first check if this will overwrite existing log files)
+    if os.path.isfile(train_loss_log_file):
+        input("You are about to overwrite existing log files; press any key to continue")
+    with open(train_loss_log_file, 'w') as f:
+        f.write('Epoch | Accum Batch Loss | Batch Loss by Depth ...\n')
+    with open(test_loss_log_file, 'w') as f:
+        f.write('Epoch | Accum Batch Loss | Batch Loss by Depth ...\n')
+    with open(other_dist_loss_log_file, 'w') as f:
+        f.write('Epoch | Accum Batch Loss | Batch Loss by Depth ...\n')
+    with open(train_acc_log_file, 'w') as f:
+        f.write('Epoch | Train Acc | Batch Acc by Depth ...\n')
+    with open(test_acc_log_file, 'w') as f:
+        f.write('Epoch | Test Acc | Batch Acc by Depth ...\n')
+    with open(other_dist_acc_log_file, 'w') as f:
+        f.write('Epoch | Other Dist Acc | Batch Acc by Depth ...\n')
+    with open(per_epoch_train_acc_log_file, 'w') as f:
+        f.write('Epoch | Per Epoch Acc | Per Epoch Acc by Depth ...\n')
+    with open(per_epoch_test_acc_log_file, 'w') as f:
+        f.write('Epoch | Per Epoch Acc | Per Epoch Acc by Depth ...\n')
+    with open(per_epoch_other_dist_acc_log_file, 'w') as f:
+        f.write('Epoch | Per Epoch Acc | Per Epoch Acc by Depth ...\n')
 
     # training loop
-    #max_valid_ll = -1.0e7
     model = model.to(device)
     model.train()
     for epoch in tqdm(range(0, max_epoch)):
-        print('Epoch: {}'.format(epoch))
 
-        # step in train
-        # batch accumulation parameter
-        accum_iter = 128
-        # accumulate different loss per depth
-        batch_loss = 0
-        batch_loss_0 = []
-        batch_loss_1 = []
-        batch_loss_2 = []
-        batch_loss_3 = []
-        for batch_idx, (x_batch, labels, ex_depth) in enumerate(tqdm(train_loader)):
-            
-            # sanity check
-            #assert batch_size == len(x_batch)
+        # compute the model accuracy each epoch:
+        train_acc, train_acc_by_depth = evaluate_by_depth(model, train_loader, word_emb, position_emb, max_reasoning_depth)
+        test_acc, test_acc_by_depth = evaluate_by_depth(model, test_loader, word_emb, position_emb, max_reasoning_depth)
+        other_dist_acc, other_dist_acc_by_depth = evaluate_by_depth(model, other_dist_loader, word_emb, position_emb, max_reasoning_depth)
 
+        # # print the accuracies
+        # print('Epoch {}; train acc: {}; test acc: {}, other dist acc: {}'.format(epoch, train_acc, test_acc, other_dist_acc))
+
+        # output the accuracies to the log files
+        accs = [train_acc, test_acc, other_dist_acc]
+        accs_by_depth = [train_acc_by_depth, test_acc_by_depth, other_dist_acc_by_depth]
+        filenames = [per_epoch_train_acc_log_file, per_epoch_test_acc_log_file, per_epoch_other_dist_acc_log_file]
+        for acc,acc_by_depth,filename in zip(accs,accs_by_depth,filenames):
+            with open(filename, 'a+') as f:
+                s = "{} {} "
+                for i in range(max_reasoning_depth+1):
+                    s = s + '{} '
+                s = s + "\n"
+                f.write(s.format(epoch, acc, *acc_by_depth))
+
+        # save the model entering each epoch (checkpoint)
+        if output_model_file != '':
+            torch.save(model, output_model_file + '_epoch' + str(epoch) + '.pt')
+
+        # training loop
+        accum_iter = effective_batch_size
+        # accumulate loss (by depth)
+        batch_loss_by_depth = [0 for i in range(max_reasoning_depth+1)]
+        # accumulate accuracy (by depth)
+        correct_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+        total_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+        for batch_idx, (x_batch, labels, ex_depth) in enumerate(train_loader):#enumerate(tqdm(train_loader))
             # forward passes
             y_batch = []
-            # optimizer.zero_grad()
-
-            for sentence in x_batch:
+            for sentence,label,ex_depth in zip(x_batch,labels,ex_depth):# since the realized batch size during gradient accumulation is 1, this loop is over 1 item only
                 input_state = tokenize_and_embed(sentence, word_emb, position_emb)
                 m_out = model(input_state)
                 y = m_out[0, 255]
-                # print(y.item()) # print logit value
+                correct_prediction = ((y>.5) == label)
+                correct_count_by_depth[ex_depth] += correct_prediction
+                total_count_by_depth[ex_depth] += 1
+                # for computing the loss we also track the prediction
                 y_batch.append(y)
-           
+            
+            # compute loss
             y_batch = torch.stack(y_batch, dim=0)
             y_batch = y_batch.type(torch.FloatTensor)
-            labels = labels.type(torch.FloatTensor)
+            labels = labels.type(torch.FloatTensor)     
+            loss = bce_loss(y_batch, labels) / accum_iter                   # normalize by the number of iterations of accumulation
+            loss.backward()                                                 # compute gradients (this adds to previously accumulated gradients)
+            batch_loss_by_depth[ex_depth] += loss.item() * accum_iter       # track loss by depth for logging (normalized by depth count later)
 
-            torch.log(y_batch)
-
-            # print(y_batch)
-            # print(labels)
-
-            bce = torch.nn.BCEWithLogitsLoss()   # get the BCE loss function
-            loss = bce(y_batch, labels)          # compute loss
-            # loss = mini_batch_loss             # normalize loss to account for batch accumulation
-            batch_loss += loss.item()  
-
-            # add loss depending on depth
-            if ex_depth == 0:
-                batch_loss_0.append(loss)
-            elif ex_depth == 1:
-                batch_loss_1.append(loss)
-            elif ex_depth == 2:
-                batch_loss_2.append(loss)
-            elif ex_depth == 3:
-                batch_loss_3.append(loss)
-
-            loss.backward()     #back propogate (compute gradients)
+            # print the loss for this batch
+            # print('TRAIN: depth',ex_depth[0].item(),', label',labels.item(), ', predict',y_batch.item(),', correct', correct_prediction.item(), ', loss',loss.item())
 
             if ((batch_idx + 1) % accum_iter == 0): #or (batch_idx + 1 == len(train_loader)):
-                batch_loss /= accum_iter
-                batch_loss_0_val = sum(batch_loss_0) / len(batch_loss_0)
-                batch_loss_1_val = sum(batch_loss_1) / len(batch_loss_1)
-                batch_loss_2_val = sum(batch_loss_2) / len(batch_loss_2)
-                batch_loss_3_val = sum(batch_loss_3) / len(batch_loss_3)
+                # compute accumulated losses for this batch; check loss/accuracy on other datasets; finally, an do SGD step
+                batch_loss = sum(batch_loss_by_depth) / sum(total_count_by_depth)
+                accumulated_loss_by_depth = []
+                for i in range(len(correct_count_by_depth)):
+                    if total_count_by_depth[i] > 0:
+                        accumulated_loss_by_depth.append(batch_loss_by_depth[i] / total_count_by_depth[i])
+                    else:
+                        accumulated_loss_by_depth.append(0)
 
-                print('Epoch {}, Accum Batch Loss: {}, Batch Loss Depth 0: {}, Batch Loss Depth 1: {}, Batch Loss Depth 2: {}, Batch Loss Depth 3: {}'
-                      .format(epoch, batch_loss, batch_loss_0_val, batch_loss_1_val, batch_loss_2_val, batch_loss_3_val))
-                with open(loss_log_file, 'a+') as f:
-                    f.write('{} {} {} {} {} {}\n'.format(epoch, batch_loss, batch_loss_0_val, batch_loss_1_val, batch_loss_2_val, batch_loss_3_val))
+                # log the losses (by depth)
+                with open(train_loss_log_file, 'a+') as f:
+                    s = "{} {} "
+                    for i in range(len(accumulated_loss_by_depth)):
+                        s = s + '{} '
+                    s = s + "\n"
+                    f.write(s.format(epoch, batch_loss, *accumulated_loss_by_depth))#* should make the elements of that list interepreted as separated arguments and therefore output as space-separated like tracy's script wants
+                
+                # compute accumulated accuracies for this batch
+                acc = sum(correct_count_by_depth) / sum(total_count_by_depth)
+                acc_by_depth = []
+                for i in range(len(correct_count_by_depth)):
+                    if total_count_by_depth[i] > 0:
+                        acc_by_depth.append(correct_count_by_depth[i] / total_count_by_depth[i])
+                    else:
+                        acc_by_depth.append(0)
+                
+                # log the accuracies (by depth)
+                with open(train_acc_log_file, 'a+') as f:
+                    s = "{} {} "
+                    for i in range(len(acc_by_depth)):
+                        s = s + '{} '
+                    s = s + "\n"
+                    f.write(s.format(epoch, acc, *acc_by_depth))
 
-                optimizer.step()    #update parameters according to this batch's gradients
+                # print an update on the progress
+                print('Train, Epoch {}, Batch loss {}, Batch accuracy {}'.format(epoch,batch_loss,acc))
+
+                # reset the batch losses and accuracies
+                batch_loss_by_depth = [0 for i in range(max_reasoning_depth+1)]
+                correct_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+                total_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+
+                # before continuing to the next effective batch,
+                # also compute the loss on the test set
+                batch_idx_inner = 0
+                while True:
+                    batch_idx_inner += 1
+                    (x_batch, labels, ex_depth) = next(iter(test_loader))
+                    # forward passes
+                    y_batch = []
+                    for sentence,label,ex_depth in zip(x_batch,labels,ex_depth):# since the realized batch size during gradient accumulation is 1, this loop is over 1 item only
+                        input_state = tokenize_and_embed(sentence, word_emb, position_emb)
+                        m_out = model(input_state)
+                        y = m_out[0, 255]
+                        correct_prediction = ((y>.5) == label)
+                        correct_count_by_depth[ex_depth] += correct_prediction
+                        total_count_by_depth[ex_depth] += 1
+                        # for computing the loss we also track the prediction
+                        y_batch.append(y)
+                    
+                    # compute loss
+                    y_batch = torch.stack(y_batch, dim=0)
+                    y_batch = y_batch.type(torch.FloatTensor)
+                    labels = labels.type(torch.FloatTensor)     
+                    loss = bce_loss(y_batch, labels) / accum_iter                   # normalize by the number of iterations of accumulation
+                    batch_loss_by_depth[ex_depth] += loss.item() * accum_iter       # track loss by depth for logging (normalized by depth count later)
+
+                    # print('TEST: depth',ex_depth[0].item(),', label',labels.item(), ', predict',y_batch.item(), ', loss',loss.item())
+
+                    if ((batch_idx_inner + 1) % accum_iter == 0): #or (batch_idx + 1 == len(train_loader)):
+                        # compute accumulated losses for this batch
+                        batch_loss = sum(batch_loss_by_depth) / sum(total_count_by_depth)
+                        accumulated_loss_by_depth = []
+                        for i in range(len(correct_count_by_depth)):
+                            if total_count_by_depth[i] > 0:
+                                accumulated_loss_by_depth.append(batch_loss_by_depth[i] / total_count_by_depth[i])
+                            else:
+                                accumulated_loss_by_depth.append(0)
+
+                        # log losses (by depth)
+                        with open(test_loss_log_file, 'a+') as f:
+                            s = "{} {} "
+                            for i in range(len(accumulated_loss_by_depth)):
+                                s = s + '{} '
+                            s = s + "\n"
+                            f.write(s.format(epoch, batch_loss, *accumulated_loss_by_depth))
+
+                        # compute accumulated accuracies for this batch
+                        acc = sum(correct_count_by_depth) / sum(total_count_by_depth)
+                        acc_by_depth = []
+                        for i in range(len(correct_count_by_depth)):
+                            if total_count_by_depth[i] > 0:
+                                acc_by_depth.append(correct_count_by_depth[i] / total_count_by_depth[i])
+                            else:
+                                acc_by_depth.append(0)
+                
+                        # log accuracies (by depth)
+                        with open(test_acc_log_file, 'a+') as f:
+                            s = "{} {} "
+                            for i in range(len(acc_by_depth)):
+                                s = s + '{} '
+                            s = s + "\n"
+                            f.write(s.format(epoch, acc, *acc_by_depth))  
+                        
+                        # print an update on the progress
+                        print('Test, Epoch {}, Batch loss {}, Batch accuracy {}'.format(epoch,batch_loss,acc))
+                        
+                        # reset the batch losses and accuracies
+                        batch_loss_by_depth = [0 for i in range(max_reasoning_depth+1)]
+                        correct_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+                        total_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+                        break
+
+                # now repeat (compute loss) on the other_dist dataset
+                batch_idx_inner = 0
+                while True:
+                    batch_idx_inner += 1
+                    (x_batch, labels, ex_depth) = next(iter(other_dist_loader))
+                    # forward passes
+                    y_batch = []
+                    for sentence,label,ex_depth in zip(x_batch,labels,ex_depth):# since the realized batch size during gradient accumulation is 1, this loop is over 1 item only
+                        input_state = tokenize_and_embed(sentence, word_emb, position_emb)
+                        m_out = model(input_state)
+                        y = m_out[0, 255]
+                        correct_prediction = ((y>.5) == label)
+                        correct_count_by_depth[ex_depth] += correct_prediction
+                        total_count_by_depth[ex_depth] += 1
+                        # for computing the loss we also track the prediction
+                        y_batch.append(y)
+                    
+                    # compute loss
+                    y_batch = torch.stack(y_batch, dim=0)
+                    y_batch = y_batch.type(torch.FloatTensor)
+                    labels = labels.type(torch.FloatTensor)     
+                    loss = bce_loss(y_batch, labels) / accum_iter                   # normalize by the number of iterations of accumulation
+                    batch_loss_by_depth[ex_depth] += loss.item() * accum_iter       # track loss by depth for logging (normalized by depth count later)
+
+                    # print('OTHER DIST: depth',ex_depth[0].item(),', label',labels.item(), ', predict',y_batch.item(), ', loss',loss.item())
+
+                    if ((batch_idx_inner + 1) % accum_iter == 0): #or (batch_idx + 1 == len(train_loader)):
+                        # compute accumulated losses for this batch
+                        batch_loss = sum(batch_loss_by_depth) / sum(total_count_by_depth)
+                        accumulated_loss_by_depth = []
+                        for i in range(len(correct_count_by_depth)):
+                            if total_count_by_depth[i] > 0:
+                                accumulated_loss_by_depth.append(batch_loss_by_depth[i] / total_count_by_depth[i])
+                            else:
+                                accumulated_loss_by_depth.append(0)
+
+                        # log losses (by depth)
+                        with open(other_dist_loss_log_file, 'a+') as f:
+                            s = "{} {} "
+                            for i in range(len(accumulated_loss_by_depth)):
+                                s = s + '{} '
+                            s = s + "\n"
+                            f.write(s.format(epoch, batch_loss, *accumulated_loss_by_depth))
+
+                        # compute accumulated accuracies for this batch
+                        acc = sum(correct_count_by_depth) / sum(total_count_by_depth)
+                        acc_by_depth = []
+                        for i in range(len(correct_count_by_depth)):
+                            if total_count_by_depth[i] > 0:
+                                acc_by_depth.append(correct_count_by_depth[i] / total_count_by_depth[i])
+                            else:
+                                acc_by_depth.append(0)
+                        
+                        # log accuracies (by depth)
+                        with open(other_dist_acc_log_file, 'a+') as f:
+                            s = "{} {} "
+                            for i in range(len(acc_by_depth)):
+                                s = s + '{} '
+                            s = s + "\n"
+                            f.write(s.format(epoch, acc, *acc_by_depth))  
+                        
+                        # print an update on the progress
+                        print('Other distribution, Epoch {}, Batch loss {}, Batch accuracy {}'.format(epoch,batch_loss,acc))
+                        
+                        # reset the batch losses and accuracies
+                        batch_loss_by_depth = [0 for i in range(max_reasoning_depth+1)]
+                        correct_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+                        total_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+                        break
+
+                # finally, do an SGD update based on the accumulated gradient (only from the training data)
+                optimizer.step()
+                # and now zero out the gradient to begin accumulating again 
                 optimizer.zero_grad()
 
-                # reset batch losses
-                batch_loss = 0
-                batch_loss_0.clear()
-                batch_loss_1.clear()
-                batch_loss_2.clear()
-                batch_loss_3.clear()
-
-            # # debugging prints:
-            # print_nonzero_params = False
-            # print_gradients = False
-
-            # if print_nonzero_params:
-            #     # show (nonzero) parameters (to see if they are like the times (a changin))
-            #     for name, param in model.named_parameters():
-            #         if param.requires_grad:
-            #             #print(name, param.data)#just print all the params
-            #             nonzero_mask = torch.ne(param.data, 0)
-            #             nonzero_entries = torch.masked_select(param.data, nonzero_mask)
-            #             print(name, nonzero_entries.data)
-
-            # if print_gradients:
-            #     # print gradients but only for the leaf nodes (where they should be stored after backward())
-            #     for name, param in model.named_parameters():
-            #         if param.requires_grad and param.is_leaf:
-            #             print(param.grad)
-
-            # print('Epoch {}, Batch Loss: {}'.format(epoch, loss.item()))
-
-        # compute accuracy on train, valid and test
-        train_acc = evaluate(model, train_loader, word_emb, position_emb)
-        valid_acc = evaluate(model, valid_loader, word_emb, position_emb)
-        test_acc = evaluate(model, test_loader, word_emb, position_emb)
-        
-
-        print('Epoch {}; train acc: {}; valid acc: {}; test acc: {}'.format(epoch, train_acc, valid_acc, test_acc))
-
-        with open(acc_log_file, 'a+') as f:
-            f.write('{} {} {} {}\n'.format(epoch, train_acc, valid_acc, test_acc))
-
+        # finally, save the model each epoch
         if output_model_file != '':
-            torch.save(model, output_model_file)
+            torch.save(model, output_model_file + '_epoch' + str(epoch) + '.pt')
+
+    
+    # do the final epoch checkpoint (compute accuracy and save the model)
+    epoch = max_epoch
+
+    # compute the model accuracy each epoch:
+    train_acc, train_acc_by_depth = evaluate_by_depth(model, train_loader, word_emb, position_emb, max_reasoning_depth)
+    test_acc, test_acc_by_depth = evaluate_by_depth(model, test_loader, word_emb, position_emb, max_reasoning_depth)
+    other_dist_acc, other_dist_acc_by_depth = evaluate_by_depth(model, other_dist_loader, word_emb, position_emb, max_reasoning_depth)
+
+    # # print the accuracies
+    # print('Epoch {}; train acc: {}; test acc: {}, other dist acc: {}'.format(epoch, train_acc, test_acc, other_dist_acc))
+
+    # output the accuracies to the log files
+    accs = [train_acc, test_acc, other_dist_acc]
+    accs_by_depth = [train_acc_by_depth, test_acc_by_depth, other_dist_acc_by_depth]
+    filenames = [per_epoch_train_acc_log_file, per_epoch_test_acc_log_file, per_epoch_other_dist_acc_log_file]
+    for acc,acc_by_depth,filename in zip(accs,accs_by_depth,filenames):
+        with open(filename, 'a+') as f:
+            s = "{} {} "
+            for i in range(max_reasoning_depth+1):
+                s = s + '{} '
+            s = s + "\n"
+            f.write(s.format(epoch, acc, *acc_by_depth))
+
+    # save the model entering each epoch (checkpoint)
+    if output_model_file != '':
+        torch.save(model, output_model_file + '_epoch' + str(epoch) + '.pt')
 
 
-def evaluate(model, dataset_loader, word_emb, position_emb):
-    accs = []
-    dataset_len = 0
-    counter = 0
-    for x_batch, labels, something_else_lol in dataset_loader:
-        batch_correct = 0
-        batch_total = 0
-        for sentence,label in zip(x_batch,labels):
+# def evaluate(model, dataset_loader, word_emb, position_emb):
+#     accs = []
+#     dataset_len = 0
+#     counter = 0
+#     for x_batch, labels, ex_depth in dataset_loader:
+#         batch_correct = 0
+#         batch_total = 0
+#         for sentence,label in zip(x_batch,labels):
+#             input_state = tokenize_and_embed(sentence, word_emb, position_emb)
+#             m_out = model(input_state)
+#             y = m_out[0, 255]
+#             correct_prediction = ((y>.5) == label)
+#             accs.append(correct_prediction)
+#             batch_correct += correct_prediction
+#             batch_total += 1
+#     print("sum:", sum(accs))
+#     acc = sum(accs).item() / len(accs)
+#     return acc
+
+def evaluate_by_depth(model, dataset_loader, word_emb, position_emb, max_reasoning_depth):
+    # accumulate accuracy (by depth)
+    correct_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+    total_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
+    for x_batch, labels, ex_depths in dataset_loader:
+        for sentence, label, ex_depth in zip(x_batch, labels, ex_depths):
             input_state = tokenize_and_embed(sentence, word_emb, position_emb)
             m_out = model(input_state)
             y = m_out[0, 255]
             correct_prediction = ((y>.5) == label)
-            accs.append(correct_prediction)
-            batch_correct += correct_prediction
-            batch_total += 1
-        # print("accuracies:", accs)
-    print("sum:", sum(accs))
-    acc = sum(accs).item() / len(accs)
-    return acc
-
+            correct_count_by_depth[ex_depth] += correct_prediction
+            total_count_by_depth[ex_depth] += 1
+    # compute accuracies
+    acc = sum(correct_count_by_depth) / sum(total_count_by_depth)
+    acc_by_depth = []
+    for i in range(len(correct_count_by_depth)):
+        if total_count_by_depth[i] > 0:
+            acc_by_depth.append(correct_count_by_depth[i] / total_count_by_depth[i])
+        else:
+            acc_by_depth.append(0)
+    return acc, acc_by_depth
 
 def main():
     args = init()
 
-    #dataset = LogicDataset.initialze_from_file(args.data_file)
-    #train, valid, test = dataset.split_dataset()
-
-    train = LogicDataset.initialze_from_file(args.data_file+'_train')
-    valid = LogicDataset.initialze_from_file(args.data_file+'_val')
-    test = LogicDataset.initialze_from_file(args.data_file+'_test')
+    train = LogicDataset.initialze_from_file(args.data_file+'_train', args.max_reasoning_depth)
+    valid = LogicDataset.initialze_from_file(args.data_file+'_val', args.max_reasoning_depth)
+    test = LogicDataset.initialze_from_file(args.data_file+'_test', args.max_reasoning_depth)
+    other_dist = LogicDataset.initialze_from_file(args.other_dist_data_file, args.max_reasoning_depth)
     
     vocab = read_vocab(args.vocab_file)
-    word_emb = gen_word_embedding(vocab, args.word_emb_file)
-    position_emb = gen_position_embedding(1024, args.position_emb_file)
+    word_emb = gen_word_embedding(vocab, args.experiment_directory + WORD_EMB_FILE)
+    position_emb = gen_position_embedding(1024, args.experiment_directory + POSITION_EMB_FILE)
 
-    model = LogicBERT()
+    model = LogicBERT(model_layers=args.model_layers)
     model.to(device)
 
-    #train, valid, test = load_data(args.dataset_path, args.dataset)
+    # save a log file with this experiment's details
+    details = {}
+    details["experiment_directory"] = args.experiment_directory
+    details["max_reasoning_depth"] = args.max_reasoning_depth
+    details["model_layers"] = args.model_layers
+    details["lr"] = args.lr
+    details["batch_size"] = args.batch_size
+    details["effective_batch_size"] = args.effective_batch_size
+    details["data_file"] = args.data_file
+    details["other_dist_data_file"] = args.other_dist_data_file
+    details["max_epoch"] = args.max_epoch
+    details["weight_decay"] = args.weight_decay
+    with open(args.experiment_directory + "experiment_details.json", "w") as file:
+        json.dump(details, file)
 
-    train_model(model, train=train, valid=valid, test=test,
-        lr=args.lr, weight_decay=args.weight_decay,
-        batch_size=args.batch_size, max_epoch=args.max_epoch,
-        loss_log_file=args.loss_log_file, acc_log_file=args.acc_log_file, output_model_file=args.output_model_file,
-        dataset_name=args.dataset, word_emb=word_emb, position_emb=position_emb)
 
-    """ old code (evaluate.py) that checks the model's correctness
-    correct_counter = 0
-
-    for index in tqdm(range(len(val_dataset))):        
-        text, label, depth = val_dataset[index]
-
-        # skip examples of depth > 10
-        if depth > 10:
-            continue
-
-        with torch.no_grad():
-            input_states = tokenize_and_embed(text, word_emb, position_emb)
-            output = model(input_states)
-
-            if (output[0, 255].item() > 0.5) == label:
-                correct_counter += 1                
-            else:
-                print('Wrong Answer!')
-                exit(0)
-
-    print(f'AC: {correct_counter} tests passed')
-    """
+    train_model(model, train=train, valid=valid, test=test, other_dist=other_dist,
+        lr=args.lr, weight_decay=args.weight_decay, batch_size=args.batch_size, effective_batch_size=args.effective_batch_size, max_epoch=args.max_epoch,
+        train_loss_log_file=args.experiment_directory + TRAIN_LOSS_LOG_FILE, test_loss_log_file=args.experiment_directory + TEST_LOSS_LOG_FILE, other_dist_loss_log_file=args.experiment_directory + OTHER_DIST_LOSS_LOG_FILE, 
+        train_acc_log_file=args.experiment_directory + TRAIN_ACC_LOG_FILE, test_acc_log_file=args.experiment_directory + TEST_ACC_LOG_FILE, other_dist_acc_log_file=args.experiment_directory + OTHER_DIST_ACC_LOG_FILE, 
+        per_epoch_train_acc_log_file=args.experiment_directory + PER_EPOCH_TRAIN_ACC_LOG_FILE, 
+        per_epoch_test_acc_log_file=args.experiment_directory + PER_EPOCH_TEST_ACC_LOG_FILE, 
+        per_epoch_other_dist_acc_log_file=args.experiment_directory + PER_EPOCH_OTHER_DIST_ACC_LOG_FILE,         
+        output_model_file=args.experiment_directory + MODEL_OUTPUT_FILE,
+        word_emb=word_emb, position_emb=position_emb, max_reasoning_depth=args.max_reasoning_depth)
 
 if __name__ == '__main__':
     main()

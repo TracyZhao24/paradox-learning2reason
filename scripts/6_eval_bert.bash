@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=$1 python finetune_simplified.py \
+CUDA_VISIBLE_DEVICES=$1 python3 finetune_simplified.py \
     --model_type bert \
     --tokenizer_name=bert-base-uncased \
     --model_name_or_path bert-base-uncased \

@@ -1,6 +1,6 @@
 mkdir -p $4
 
-CUDA_VISIBLE_DEVICES=$1 python -m torch.distributed.launch --master_port=$3 --nproc_per_node=$2 finetune_simplified.py \
+CUDA_VISIBLE_DEVICES=$1 python3 -m torch.distributed.launch --master_port=$3 --nproc_per_node=$2 finetune_simplified.py \
     --model_type bert \
     --tokenizer_name=bert-base-uncased \
     --model_name_or_path bert-base-uncased \
