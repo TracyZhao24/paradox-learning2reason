@@ -6,4 +6,4 @@ python3 logic_bert/train_logic_bert.py \
                 --vocab_file sample/vocab.txt \
                 --max_reasoning_depth 3 \
                 --model_layers 7 \
-                --experiment_directory EXPERIMENTS/22_may_2024/
+                --experiment_directory EXPERIMENTS/28_may_2024_train_embeddings_too/

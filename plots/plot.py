@@ -4,7 +4,7 @@ import json
 
 # current experiment:
 # experiment_directory = 'EXPERIMENTS/15_may_2024_1/'
-experiment_directory = 'EXPERIMENTS/22_may_2024/'
+experiment_directory = 'EXPERIMENTS/28_may_2024_train_embeddings_too/'
 
 # get experiment details
 with open(experiment_directory + "experiment_details.json", "r") as file:

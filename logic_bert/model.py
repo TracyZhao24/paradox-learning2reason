@@ -463,18 +463,18 @@ class FinalReasonLayer(nn.Module):
         super().__init__()
 
         Q, K, V, b_Q, b_K, b_V = self.compute_attention_matrix(alpha)
-        self.Q = nn.Parameter(Q, requires_grad=False)
-        self.K = nn.Parameter(K, requires_grad=False)
-        self.V = nn.Parameter(V, requires_grad=False)
-        self.b_Q = nn.Parameter(b_Q, requires_grad=False)
-        self.b_K = nn.Parameter(b_K, requires_grad=False)
-        self.b_V = nn.Parameter(b_V, requires_grad=False)
+        self.Q = nn.Parameter(Q, requires_grad=True)
+        self.K = nn.Parameter(K, requires_grad=True)
+        self.V = nn.Parameter(V, requires_grad=True)
+        self.b_Q = nn.Parameter(b_Q, requires_grad=True)
+        self.b_K = nn.Parameter(b_K, requires_grad=True)
+        self.b_V = nn.Parameter(b_V, requires_grad=True)
 
         W1, b1, W2, b2 = self.compute_mlp_matrix()
-        self.W1 = nn.Parameter(W1, requires_grad=False)
-        self.b1 = nn.Parameter(b1, requires_grad=False)
-        self.W2 = nn.Parameter(W2, requires_grad=False)
-        self.b2 = nn.Parameter(b2, requires_grad=False)
+        self.W1 = nn.Parameter(W1, requires_grad=True)
+        self.b1 = nn.Parameter(b1, requires_grad=True)
+        self.W2 = nn.Parameter(W2, requires_grad=True)
+        self.b2 = nn.Parameter(b2, requires_grad=True)
 
     def forward(self, input_states):
         Q, K, V = self.Q, self.K, self.V
@@ -581,13 +581,68 @@ class FinalReasonLayer(nn.Module):
 
 
 class LogicBERT(nn.Module):
-    def __init__(self, model_layers=10):
+    def __init__(self, vocab_file, device, model_layers=10):
         super().__init__()
 
+        self.tokenize_and_embed = TokenizeAndEmbed(vocab_file, device)
         self.parse_layer = ParseLayer()
         reason_layers = [(str(i), ReasonLayer()) for i in range(model_layers - 2)]
         self.reason_layers = nn.Sequential(OrderedDict(reason_layers))
         self.final_reason_layer = FinalReasonLayer()
 
-    def forward(self, input_states):
-        return nn.functional.sigmoid(self.final_reason_layer(self.reason_layers(self.parse_layer(input_states))))
+    def forward(self, sentence):
+        return nn.functional.sigmoid(self.final_reason_layer(self.reason_layers(self.parse_layer(self.tokenize_and_embed(sentence)))))
+
+
+class TokenizeAndEmbed(nn.Module):
+    def __init__(self, vocab_file, device):
+        super().__init__()
+        self.device = device
+        word_emb = self.gen_word_embedding(vocab_file)
+        position_emb = self.gen_position_embedding(1024)
+        self.word_emb = nn.ParameterDict(word_emb)
+        self.position_emb = nn.Parameter(position_emb, requires_grad=True)
+
+    def forward(self, sentence):
+        seq = [token for token in sentence.split(' ') if token != '']
+        x = torch.zeros(len(seq), 768, device=self.device)
+        for i, word in enumerate(seq):
+            if word == '.':
+                word = 'REPLACEMENT_FOR_DOT'
+            x[i, :] = torch.cat((torch.zeros(64 * 8, device=self.device), self.word_emb[word], torch.zeros(64 * 3, device=self.device))) + self.position_emb[i]
+        return x
+
+    def gen_word_embedding(self, vocab_file):
+        vocab = self.read_vocab(vocab_file)
+        word_emb = {}
+        for word in vocab:
+            if word == '.': #need to avoid dot
+                continue
+            word_emb[word] = torch.cat((torch.randn(59), torch.zeros(5)))
+            word_emb[word] /= torch.norm(word_emb[word])
+            word_emb[word] = nn.Parameter(word_emb[word], requires_grad=True)
+        word_emb['REPLACEMENT_FOR_DOT'] = nn.Parameter(torch.cat((torch.zeros(59), torch.ones(1), torch.zeros(4))), requires_grad=True)
+        word_emb['[CLS]'] = nn.Parameter(torch.cat((torch.zeros(59), torch.ones(1), torch.zeros(4))), requires_grad=True)
+        return word_emb
+
+    def gen_position_embedding(self, n):
+        P = torch.randn(n, 64)
+        for i in range(0, n):
+            P[i] /= torch.norm(P[i])
+        position_emb = torch.zeros(n, 768)
+        for i in range(1, n):
+            for j, k in enumerate([3, 5, 7, 1, 0, 2, 4, 6]):
+                if i - k >= 0:
+                    position_emb[i, 64*j:64*(j+1)] = P[i-k]
+        for j, k in enumerate([6, 4, 4, 6, 0, 4, 7, 7]):
+            position_emb[0, 64*j:64*(j+1)] = P[k]
+        return position_emb
+    
+    def read_vocab(self, vocab_file):
+        vocab = []
+        with open(vocab_file, 'r') as fin:
+            vocab = [line.strip() for line in fin.readlines()]
+        vocab += ['[CLS]', 'Start', 'Query', ':', 'Alice', 'is', '.', 'and', ',']
+        vocab = set(vocab)
+        print('vocabulary size: ', len(vocab))
+        return vocab

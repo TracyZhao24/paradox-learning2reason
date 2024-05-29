@@ -121,53 +121,53 @@ def init():
     return args
 
 
-def read_vocab(vocab_file):
-    vocab = []
-    with open(vocab_file, 'r') as fin:
-        vocab = [line.strip() for line in fin.readlines()]
-    vocab += ['[CLS]', 'Start', 'Query', ':', 'Alice', 'is', '.', 'and', ',']
-    vocab = set(vocab)
-    print('vocabulary size: ', len(vocab))
-    return vocab
+# def read_vocab(vocab_file):
+#     vocab = []
+#     with open(vocab_file, 'r') as fin:
+#         vocab = [line.strip() for line in fin.readlines()]
+#     vocab += ['[CLS]', 'Start', 'Query', ':', 'Alice', 'is', '.', 'and', ',']
+#     vocab = set(vocab)
+#     print('vocabulary size: ', len(vocab))
+#     return vocab
 
 
-def gen_word_embedding(vocab, word_emb_file):
-    word_emb = {}
-    for word in vocab:
-        word_emb[word] = torch.cat((torch.randn(59).to(device), torch.zeros(5).to(device)))
-        word_emb[word] /= torch.norm(word_emb[word])
-    word_emb['.'] = torch.cat((torch.zeros(59).to(device), torch.ones(1).to(device), torch.zeros(4).to(device)))
-    word_emb['[CLS]'] = word_emb['.']
+# def gen_word_embedding(vocab, word_emb_file):
+#     word_emb = {}
+#     for word in vocab:
+#         word_emb[word] = torch.cat((torch.randn(59).to(device), torch.zeros(5).to(device)))
+#         word_emb[word] /= torch.norm(word_emb[word])
+#     word_emb['.'] = torch.cat((torch.zeros(59).to(device), torch.ones(1).to(device), torch.zeros(4).to(device)))
+#     word_emb['[CLS]'] = word_emb['.']
 
-    torch.save(word_emb, word_emb_file)
+#     torch.save(word_emb, word_emb_file)
 
-    return word_emb
+#     return word_emb
 
 
-def gen_position_embedding(n, position_emb_file):
-    P = torch.randn(n, 64).to(device)
-    for i in range(0, n):
-        P[i] /= torch.norm(P[i])
-    position_emb = torch.zeros(n, 768).to(device)
-    for i in range(1, n):
-        for j, k in enumerate([3, 5, 7, 1, 0, 2, 4, 6]):
-            if i - k >= 0:
-                position_emb[i, 64*j:64*(j+1)] = P[i-k]
+# def position_embedding(n, position_emb_file):
+#     P = torch.randn(n, 64).to(device)
+#     for i in range(0, n):
+#         P[i] /= torch.norm(P[i])
+#     position_emb = torch.zeros(n, 768).to(device)
+#     for i in range(1, n):
+#         for j, k in enumerate([3, 5, 7, 1, 0, 2, 4, 6]):
+#             if i - k >= 0:
+#                 position_emb[i, 64*j:64*(j+1)] = P[i-k]
 
-    for j, k in enumerate([6, 4, 4, 6, 0, 4, 7, 7]):
-        position_emb[0, 64*j:64*(j+1)] = P[k]
+#     for j, k in enumerate([6, 4, 4, 6, 0, 4, 7, 7]):
+#         position_emb[0, 64*j:64*(j+1)] = P[k]
     
-    torch.save(position_emb, position_emb_file)
+#     torch.save(position_emb, position_emb_file)
 
-    return position_emb
+#     return position_emb
 
 
-def tokenize_and_embed(sentence, word_emb, position_emb):
-    seq = [token for token in sentence.split(' ') if token != '']
-    x = torch.zeros(len(seq), 768).to(device)
-    for i, word in enumerate(seq):
-        x[i, :] = torch.cat((torch.zeros(64 * 8).to(device), word_emb[word], torch.zeros(64 * 3).to(device))) + position_emb[i]
-    return x
+# def tokenize_and_embed(sentence, word_emb, position_emb):
+#     seq = [token for token in sentence.split(' ') if token != '']
+#     x = torch.zeros(len(seq), 768).to(device)
+#     for i, word in enumerate(seq):
+#         x[i, :] = torch.cat((torch.zeros(64 * 8).to(device), word_emb[word], torch.zeros(64 * 3).to(device))) + position_emb[i]
+#     return x
     
 
 def train_model(model, train, valid, test, other_dist,
@@ -175,7 +175,7 @@ def train_model(model, train, valid, test, other_dist,
                 train_loss_log_file, test_loss_log_file, other_dist_loss_log_file, 
                 train_acc_log_file, test_acc_log_file, other_dist_acc_log_file,
                 per_epoch_train_acc_log_file, per_epoch_test_acc_log_file, per_epoch_other_dist_acc_log_file,
-                output_model_file, word_emb, position_emb, max_reasoning_depth=6):
+                output_model_file, max_reasoning_depth=6):
     valid_loader, test_loader = None, None
     train_loader = DataLoader(dataset=train, batch_size=batch_size, shuffle=True)
     if valid is not None:
@@ -216,11 +216,10 @@ def train_model(model, train, valid, test, other_dist,
     model = model.to(device)
     model.train()
     for epoch in tqdm(range(0, max_epoch)):
-
         # compute the model accuracy each epoch:
-        train_acc, train_acc_by_depth = evaluate_by_depth(model, train_loader, word_emb, position_emb, max_reasoning_depth)
-        test_acc, test_acc_by_depth = evaluate_by_depth(model, test_loader, word_emb, position_emb, max_reasoning_depth)
-        other_dist_acc, other_dist_acc_by_depth = evaluate_by_depth(model, other_dist_loader, word_emb, position_emb, max_reasoning_depth)
+        train_acc, train_acc_by_depth = evaluate_by_depth(model, train_loader, max_reasoning_depth)
+        test_acc, test_acc_by_depth = evaluate_by_depth(model, test_loader, max_reasoning_depth)
+        other_dist_acc, other_dist_acc_by_depth = evaluate_by_depth(model, other_dist_loader, max_reasoning_depth)
 
         # # print the accuracies
         # print('Epoch {}; train acc: {}; test acc: {}, other dist acc: {}'.format(epoch, train_acc, test_acc, other_dist_acc))
@@ -252,8 +251,8 @@ def train_model(model, train, valid, test, other_dist,
             # forward passes
             y_batch = []
             for sentence,label,ex_depth in zip(x_batch,labels,ex_depth):# since the realized batch size during gradient accumulation is 1, this loop is over 1 item only
-                input_state = tokenize_and_embed(sentence, word_emb, position_emb)
-                m_out = model(input_state)
+                # input_state = tokenize_and_embed(sentence, word_emb, position_emb)
+                m_out = model(sentence)
                 y = m_out[0, 255]
                 correct_prediction = ((y>.5) == label)
                 correct_count_by_depth[ex_depth] += correct_prediction
@@ -324,8 +323,8 @@ def train_model(model, train, valid, test, other_dist,
                     # forward passes
                     y_batch = []
                     for sentence,label,ex_depth in zip(x_batch,labels,ex_depth):# since the realized batch size during gradient accumulation is 1, this loop is over 1 item only
-                        input_state = tokenize_and_embed(sentence, word_emb, position_emb)
-                        m_out = model(input_state)
+                        # input_state = tokenize_and_embed(sentence, word_emb, position_emb)
+                        m_out = model(sentence)
                         y = m_out[0, 255]
                         correct_prediction = ((y>.5) == label)
                         correct_count_by_depth[ex_depth] += correct_prediction
@@ -394,8 +393,8 @@ def train_model(model, train, valid, test, other_dist,
                     # forward passes
                     y_batch = []
                     for sentence,label,ex_depth in zip(x_batch,labels,ex_depth):# since the realized batch size during gradient accumulation is 1, this loop is over 1 item only
-                        input_state = tokenize_and_embed(sentence, word_emb, position_emb)
-                        m_out = model(input_state)
+                        # input_state = tokenize_and_embed(sentence, word_emb, position_emb)
+                        m_out = model(sentence)
                         y = m_out[0, 255]
                         correct_prediction = ((y>.5) == label)
                         correct_count_by_depth[ex_depth] += correct_prediction
@@ -470,9 +469,9 @@ def train_model(model, train, valid, test, other_dist,
     epoch = max_epoch
 
     # compute the model accuracy each epoch:
-    train_acc, train_acc_by_depth = evaluate_by_depth(model, train_loader, word_emb, position_emb, max_reasoning_depth)
-    test_acc, test_acc_by_depth = evaluate_by_depth(model, test_loader, word_emb, position_emb, max_reasoning_depth)
-    other_dist_acc, other_dist_acc_by_depth = evaluate_by_depth(model, other_dist_loader, word_emb, position_emb, max_reasoning_depth)
+    train_acc, train_acc_by_depth = evaluate_by_depth(model, train_loader, max_reasoning_depth)
+    test_acc, test_acc_by_depth = evaluate_by_depth(model, test_loader, max_reasoning_depth)
+    other_dist_acc, other_dist_acc_by_depth = evaluate_by_depth(model, other_dist_loader, max_reasoning_depth)
 
     # # print the accuracies
     # print('Epoch {}; train acc: {}; test acc: {}, other dist acc: {}'.format(epoch, train_acc, test_acc, other_dist_acc))
@@ -513,14 +512,14 @@ def train_model(model, train, valid, test, other_dist,
 #     acc = sum(accs).item() / len(accs)
 #     return acc
 
-def evaluate_by_depth(model, dataset_loader, word_emb, position_emb, max_reasoning_depth):
+def evaluate_by_depth(model, dataset_loader, max_reasoning_depth):
     # accumulate accuracy (by depth)
     correct_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
     total_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
     for x_batch, labels, ex_depths in dataset_loader:
         for sentence, label, ex_depth in zip(x_batch, labels, ex_depths):
-            input_state = tokenize_and_embed(sentence, word_emb, position_emb)
-            m_out = model(input_state)
+            # input_state = tokenize_and_embed(sentence, word_emb, position_emb)
+            m_out = model(sentence)
             y = m_out[0, 255]
             correct_prediction = ((y>.5) == label)
             correct_count_by_depth[ex_depth] += correct_prediction
@@ -543,13 +542,13 @@ def main():
     test = LogicDataset.initialze_from_file(args.data_file+'_test', args.max_reasoning_depth)
     other_dist = LogicDataset.initialze_from_file(args.other_dist_data_file, args.max_reasoning_depth)
     
-    vocab = read_vocab(args.vocab_file)
-    word_emb = gen_word_embedding(vocab, args.experiment_directory + WORD_EMB_FILE)
-    position_emb = gen_position_embedding(1024, args.experiment_directory + POSITION_EMB_FILE)
+    # vocab = read_vocab(args.vocab_file)
+    # word_emb = gen_word_embedding(vocab, args.experiment_directory + WORD_EMB_FILE)
+    # position_emb = gen_position_embedding(1024, args.experiment_directory + POSITION_EMB_FILE)
 
-    model = LogicBERT(model_layers=args.model_layers)
+    model = LogicBERT(vocab_file=args.vocab_file, model_layers=args.model_layers, device=device)
     model.to(device)
-
+ 
     # save a log file with this experiment's details
     details = {}
     details["experiment_directory"] = args.experiment_directory
@@ -574,7 +573,7 @@ def main():
         per_epoch_test_acc_log_file=args.experiment_directory + PER_EPOCH_TEST_ACC_LOG_FILE, 
         per_epoch_other_dist_acc_log_file=args.experiment_directory + PER_EPOCH_OTHER_DIST_ACC_LOG_FILE,         
         output_model_file=args.experiment_directory + MODEL_OUTPUT_FILE,
-        word_emb=word_emb, position_emb=position_emb, max_reasoning_depth=args.max_reasoning_depth)
+        max_reasoning_depth=args.max_reasoning_depth)
 
 if __name__ == '__main__':
     main()
