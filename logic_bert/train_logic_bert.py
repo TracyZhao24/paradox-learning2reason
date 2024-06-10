@@ -98,6 +98,7 @@ def init():
     parser.add_argument('--effective_batch_size', default=256, type=int)
     parser.add_argument('--lr', default=0.001, type=float)
     parser.add_argument('--weight_decay', default=1.0, type=float)
+    parser.add_argument('--optimizer', default='SGD', type=str)
     # parser.add_argument('--max_cluster_size', default=10, type=int)
     # parser.add_argument('--train_loss_log_file', default='train_loss_log.txt', type=str)
     # parser.add_argument('--test_loss_log_file', default='test_loss_log.txt', type=str)
@@ -170,7 +171,7 @@ def init():
 #     return x
     
 
-def train_model(model, train, valid, test, other_dist,
+def train_model(model, optimizer, train, valid, test, other_dist,
                 lr, weight_decay, batch_size, effective_batch_size, max_epoch,
                 train_loss_log_file, test_loss_log_file, other_dist_loss_log_file, 
                 train_acc_log_file, test_acc_log_file, other_dist_acc_log_file,
@@ -186,31 +187,16 @@ def train_model(model, train, valid, test, other_dist,
         other_dist_loader = DataLoader(dataset=other_dist, batch_size=batch_size, shuffle=True)
 
     # select optimizer and loss function
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if optimizer == 'Adam':
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    else:
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     bce_loss = torch.nn.BCELoss()                    # use Binary Cross Entropy Loss 
 
     # set up logging files
-    # (first check if this will overwrite existing log files)
-    if os.path.isfile(train_loss_log_file):
-        input("You are about to overwrite existing log files; press any key to continue")
-    with open(train_loss_log_file, 'w') as f:
-        f.write('Epoch | Accum Batch Loss | Batch Loss by Depth ...\n')
-    with open(test_loss_log_file, 'w') as f:
-        f.write('Epoch | Accum Batch Loss | Batch Loss by Depth ...\n')
-    with open(other_dist_loss_log_file, 'w') as f:
-        f.write('Epoch | Accum Batch Loss | Batch Loss by Depth ...\n')
-    with open(train_acc_log_file, 'w') as f:
-        f.write('Epoch | Train Acc | Batch Acc by Depth ...\n')
-    with open(test_acc_log_file, 'w') as f:
-        f.write('Epoch | Test Acc | Batch Acc by Depth ...\n')
-    with open(other_dist_acc_log_file, 'w') as f:
-        f.write('Epoch | Other Dist Acc | Batch Acc by Depth ...\n')
-    with open(per_epoch_train_acc_log_file, 'w') as f:
-        f.write('Epoch | Per Epoch Acc | Per Epoch Acc by Depth ...\n')
-    with open(per_epoch_test_acc_log_file, 'w') as f:
-        f.write('Epoch | Per Epoch Acc | Per Epoch Acc by Depth ...\n')
-    with open(per_epoch_other_dist_acc_log_file, 'w') as f:
-        f.write('Epoch | Per Epoch Acc | Per Epoch Acc by Depth ...\n')
+    init_log_files(train_loss_log_file, test_loss_log_file, other_dist_loss_log_file, 
+                train_acc_log_file, test_acc_log_file, other_dist_acc_log_file,
+                per_epoch_train_acc_log_file, per_epoch_test_acc_log_file, per_epoch_other_dist_acc_log_file)
 
     # training loop
     model = model.to(device)
@@ -512,6 +498,31 @@ def train_model(model, train, valid, test, other_dist,
 #     acc = sum(accs).item() / len(accs)
 #     return acc
 
+def init_log_files(train_loss_log_file, test_loss_log_file, other_dist_loss_log_file, 
+                train_acc_log_file, test_acc_log_file, other_dist_acc_log_file,
+                per_epoch_train_acc_log_file, per_epoch_test_acc_log_file, per_epoch_other_dist_acc_log_file):
+    # (first check if this will overwrite existing log files)
+    if os.path.isfile(train_loss_log_file):
+        input("You are about to overwrite existing log files; press any key to continue")
+    with open(train_loss_log_file, 'w') as f:
+        f.write('Epoch | Accum Batch Loss | Batch Loss by Depth ...\n')
+    with open(test_loss_log_file, 'w') as f:
+        f.write('Epoch | Accum Batch Loss | Batch Loss by Depth ...\n')
+    with open(other_dist_loss_log_file, 'w') as f:
+        f.write('Epoch | Accum Batch Loss | Batch Loss by Depth ...\n')
+    with open(train_acc_log_file, 'w') as f:
+        f.write('Epoch | Train Acc | Batch Acc by Depth ...\n')
+    with open(test_acc_log_file, 'w') as f:
+        f.write('Epoch | Test Acc | Batch Acc by Depth ...\n')
+    with open(other_dist_acc_log_file, 'w') as f:
+        f.write('Epoch | Other Dist Acc | Batch Acc by Depth ...\n')
+    with open(per_epoch_train_acc_log_file, 'w') as f:
+        f.write('Epoch | Per Epoch Acc | Per Epoch Acc by Depth ...\n')
+    with open(per_epoch_test_acc_log_file, 'w') as f:
+        f.write('Epoch | Per Epoch Acc | Per Epoch Acc by Depth ...\n')
+    with open(per_epoch_other_dist_acc_log_file, 'w') as f:
+        f.write('Epoch | Per Epoch Acc | Per Epoch Acc by Depth ...\n')
+
 def evaluate_by_depth(model, dataset_loader, max_reasoning_depth):
     # accumulate accuracy (by depth)
     correct_count_by_depth = [0 for i in range(max_reasoning_depth+1)]
@@ -561,11 +572,12 @@ def main():
     details["other_dist_data_file"] = args.other_dist_data_file
     details["max_epoch"] = args.max_epoch
     details["weight_decay"] = args.weight_decay
+    details["optimizer"] = args.optimizer
     with open(args.experiment_directory + "experiment_details.json", "w") as file:
         json.dump(details, file)
 
 
-    train_model(model, train=train, valid=valid, test=test, other_dist=other_dist,
+    train_model(model, optimizer=args.optimizer, train=train, valid=valid, test=test, other_dist=other_dist,
         lr=args.lr, weight_decay=args.weight_decay, batch_size=args.batch_size, effective_batch_size=args.effective_batch_size, max_epoch=args.max_epoch,
         train_loss_log_file=args.experiment_directory + TRAIN_LOSS_LOG_FILE, test_loss_log_file=args.experiment_directory + TEST_LOSS_LOG_FILE, other_dist_loss_log_file=args.experiment_directory + OTHER_DIST_LOSS_LOG_FILE, 
         train_acc_log_file=args.experiment_directory + TRAIN_ACC_LOG_FILE, test_acc_log_file=args.experiment_directory + TEST_ACC_LOG_FILE, other_dist_acc_log_file=args.experiment_directory + OTHER_DIST_ACC_LOG_FILE, 

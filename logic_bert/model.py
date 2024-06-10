@@ -616,7 +616,7 @@ class TokenizeAndEmbed(nn.Module):
         vocab = self.read_vocab(vocab_file)
         word_emb = {}
         for word in vocab:
-            if word == '.': #need to avoid dot
+            if word == '.': # need to avoid dot
                 continue
             word_emb[word] = torch.cat((torch.randn(59), torch.zeros(5)))
             word_emb[word] /= torch.norm(word_emb[word])

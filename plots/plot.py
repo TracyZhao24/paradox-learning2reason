@@ -1,10 +1,14 @@
 import matplotlib.pyplot as plt 
 from matplotlib.pyplot import figure
 import json
+import sys
 
 # current experiment:
 # experiment_directory = 'EXPERIMENTS/15_may_2024_1/'
-experiment_directory = 'EXPERIMENTS/28_may_2024_train_embeddings_too/'
+# experiment_directory = 'EXPERIMENTS/28_may_2024_train_embeddings_too/'
+# experiment_directory = 'EXPERIMENTS/29_may_2024/'
+# experiment_directory = 'EXPERIMENTS/29_may_2024_harder/'
+experiment_directory = 'EXPERIMENTS/' + sys.argv[1] + '/'
 
 # get experiment details
 with open(experiment_directory + "experiment_details.json", "r") as file:
